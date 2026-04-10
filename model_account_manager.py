@@ -340,9 +340,14 @@ def litellm_model_id(model_name):
 
 def generate_litellm_config(accounts):
     lines = ["model_list:"]
+    generated_names = set()
+    fallback_deployment = None
     for account in [item for item in accounts if item.enabled]:
         for mapping in [item for item in account.mappings if item.enabled]:
+            if fallback_deployment is None:
+                fallback_deployment = (account, mapping)
             for model_name in compat_model_names(mapping):
+                generated_names.add(model_name)
                 lines += [
                     f"  - model_name: {model_name}",
                     "    litellm_params:",
@@ -353,6 +358,23 @@ def generate_litellm_config(accounts):
                     "      timeout: 120",
                     "",
                 ]
+    if fallback_deployment is not None:
+        account, mapping = fallback_deployment
+        required_aliases = ["sonnet", "sonnet-glm5", "opus", "opus-minimax", "haiku", "haiku-kimi", "step-3.5-flash"]
+        for model_name in required_aliases:
+            if model_name in generated_names:
+                continue
+            generated_names.add(model_name)
+            lines += [
+                f"  - model_name: {model_name}",
+                "    litellm_params:",
+                f"      model: {litellm_model_id(mapping.model_name)}",
+                f"      api_key: os.environ/{account.env_var}",
+                "      api_base: os.environ/NVIDIA_NIM_API_BASE",
+                f"      weight: {max(1, mapping.weight)}",
+                "      timeout: 120",
+                "",
+            ]
     if len(lines) == 1:
         lines += [
             "  - model_name: disabled-placeholder",
